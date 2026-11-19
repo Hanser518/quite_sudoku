@@ -4,15 +4,15 @@ Android 原生数独 App，最低 Android 8.0（API 26）。界面和业务代�
 
 ## 安装与升级
 
-当前代码版本 **1.9 / versionCode 10**，本机构建交付文件为 `dist/quiet-sudoku-debug.apk`，APK 不提交到 Git。
+当前版本 **1.10 / versionCode 11**。从 [GitHub Release](https://github.com/Hanser518/quite_sudoku/releases/tag/v1.10) 下载已签名的 `quite_sudoku.apk`，此版本包含通关记录。
 
-已有的 **1.8** 独立签名安装包可从 [GitHub Release](https://github.com/Hanser518/quite_sudoku/releases/tag/v1.8) 下载，该版本不包含 1.9 的通关记录功能。它与本地 Debug 包签名不同，只有相同签名的安装才能覆盖升级。
+1.10 与 [1.8 Release](https://github.com/Hanser518/quite_sudoku/releases/tag/v1.8) 使用同一签名，可覆盖安装。仅签名相同的 APK 支持覆盖升级并保留本机数据。
 
 ```sh
-adb install -r dist/quiet-sudoku-debug.apk
+adb install -r quite_sudoku.apk
 ```
 
-本次为 Debug 签名测试包。包名和签名沿用上一版，可覆盖安装；旧版棋盘、草稿、计时、输入模式和撤销历史继续保留。若旧存档选中了题目数字，会取消该选择；可编辑格的选择继续保留。不要卸载旧版后再安装，否则 Android 会删除本机存档。
+覆盖安装保留旧版棋盘、草稿、计时、输入模式和撤销历史。若旧存档选中了题目数字，会取消该选择；可编辑格的选择继续保留。卸载后再安装会删除本机存档。
 
 存档升级为 v2，额外保存正在查看的单元格；支持读取 v1。1.2 及更早的 App 无法读取 v2 存档。
 
