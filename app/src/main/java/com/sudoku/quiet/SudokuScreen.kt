@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,6 +44,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 private val Ease = CubicBezierEasing(.2f, 0f, 0f, 1f)
 private const val Motion = 240
@@ -368,6 +372,7 @@ private fun Glyph(name: String, color: Color, modifier: Modifier = Modifier) {
 
 @Composable
 internal fun GameMenu(menu: Menu?, light: Boolean, showErrors: Boolean, time: String, onDismiss: () -> Unit,
+    completions: List<Completion>, level: Int, onHistory: () -> Unit,
     onLight: (Boolean) -> Unit, onErrors: (Boolean) -> Unit, onLevel: (Int) -> Unit, onConfirm: () -> Unit) {
     var lastMenu by remember { mutableStateOf(menu) }
     SideEffect { if (menu != null) lastMenu = menu }
@@ -390,12 +395,15 @@ internal fun GameMenu(menu: Menu?, light: Boolean, showErrors: Boolean, time: St
                     Column(Modifier.verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         Text(when (current) {
                             Menu.Settings -> "设置"; Menu.Difficulty -> "选择难度"; Menu.NewGame -> "开始新游戏？"
-                            Menu.Restart -> "重新开始？"; Menu.Complete -> "已完成"
+                            Menu.Restart -> "重新开始？"; Menu.Complete -> "已完成"; Menu.History -> "通关记录"
                         }, fontSize = 22.sp, fontWeight = FontWeight.Medium, color = colors.ink)
                         when (current) {
                             Menu.Settings -> {
                                 SettingSwitch("错误提醒", "errors", showErrors, colors, onErrors)
                                 SettingSwitch("浅色主题", "theme", light, colors, onLight)
+                                TextButton(onClick = onHistory, modifier = Modifier.fillMaxWidth().testTag("history")) {
+                                    Text("通关记录", fontSize = 17.sp)
+                                }
                             }
                             Menu.Difficulty -> Sudoku.levels.forEachIndexed { index, title ->
                                 Pressable(onClick = { onLevel(index) }, colors = colors, description = title,
@@ -405,7 +413,13 @@ internal fun GameMenu(menu: Menu?, light: Boolean, showErrors: Boolean, time: St
                             }
                             Menu.NewGame -> Text("当前对局将被替换。", color = colors.ink, fontSize = 16.sp)
                             Menu.Restart -> Text("清除本题填写、草稿和计时？", color = colors.ink, fontSize = 16.sp)
-                            Menu.Complete -> Text(time, color = colors.accent, fontSize = 28.sp, fontFamily = FontFamily.Monospace)
+                            Menu.Complete -> {
+                                Text(time, color = colors.accent, fontSize = 28.sp, fontFamily = FontFamily.Monospace)
+                                TextButton(onClick = onHistory, modifier = Modifier.testTag("history")) {
+                                    Text("通关记录", fontSize = 17.sp)
+                                }
+                            }
+                            Menu.History -> CompletionList(completions, level, colors)
                         }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                             TextButton(onClick = onDismiss, modifier = Modifier.testTag("dialog-close")) {
@@ -421,6 +435,44 @@ internal fun GameMenu(menu: Menu?, light: Boolean, showErrors: Boolean, time: St
                 }
             }
           }
+        }
+    }
+}
+
+@Composable
+private fun CompletionList(records: List<Completion>, initialLevel: Int, colors: Palette) {
+    var level by rememberSaveable { mutableIntStateOf(initialLevel) }
+    val formatter = remember { DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm").withZone(ZoneId.systemDefault()) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        repeat(2) { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                repeat(2) { column ->
+                    val index = row * 2 + column
+                    val fill by animateColorAsState(if (index == level) colors.accent else colors.background, ColorMotion, label = "history-level")
+                    val ink by animateColorAsState(if (index == level) colors.background else colors.ink, ColorMotion, label = "history-ink")
+                    Pressable(onClick = { level = index }, colors = colors, description = Sudoku.levels[index],
+                        modifier = Modifier.weight(1f).height(48.dp).testTag("history-level-$index").semantics { selected = index == level },
+                        shape = RoundedCornerShape(16.dp)) {
+                        Box(Modifier.fillMaxSize().background(fill, RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) {
+                            Text(if (index == 3) "Extreme" else Sudoku.levels[index], color = ink, fontSize = 16.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    AnimatedContent(level, transitionSpec = {
+        fadeIn(tween(Motion, easing = Ease)) togetherWith fadeOut(tween(100, easing = Ease))
+    }, label = "history-records") { selectedLevel ->
+        val entries = records.filter { it.level == selectedLevel }
+        Column(Modifier.fillMaxWidth().testTag("history-list"), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            if (entries.isEmpty()) Text("暂无通关记录", color = colors.muted, fontSize = 16.sp)
+            entries.forEachIndexed { index, entry ->
+                Column(Modifier.fillMaxWidth().testTag("history-record-$index"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(formatter.format(Instant.ofEpochMilli(entry.completedAt)), color = colors.ink, fontSize = 16.sp)
+                    Text("用时 ${timeText(entry.elapsedMs)}", color = colors.accent, fontSize = 18.sp, fontFamily = FontFamily.Monospace)
+                }
+            }
         }
     }
 }

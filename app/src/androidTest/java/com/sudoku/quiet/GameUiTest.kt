@@ -36,6 +36,60 @@ class GameUiTest {
     }
     @After fun close() { scenario.close() }
 
+    @Test fun completionIsSavedOnceSurvivesRecreationAndRestartStartsAnotherRun() {
+        scenario.close()
+        val empty = initial.givens.indexOf(0)
+        val almost = initial.copy(board = initial.solution.toMutableList().apply { this[empty] = 0 })
+        preferences.edit().putString("game", almost.save()).commit()
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        compose.waitForIdle()
+        click("cell-$empty"); click("key-${initial.solution[empty]}")
+        compose.onNodeWithText("已完成").assertIsDisplayed()
+        fun records() = CompletionHistory.restore(preferences.getString("completions", null))
+        assertEquals(1, records().size)
+        assertEquals(initial.level, records().single().level)
+        assertTrue(records().single().elapsedMs >= 12000)
+        val first = records().single()
+        click("history")
+        node("history-record-0").assertIsDisplayed()
+        click("history-level-3")
+        compose.onNodeWithText("暂无通关记录").assertIsDisplayed()
+        scenario.recreate(); compose.waitForIdle()
+        node("history-level-3").assertIsSelected()
+        click("history-level-0")
+        node("history-record-0").assertIsDisplayed()
+        click("dialog-close"); click("undo")
+        click("hint")
+        assertEquals(listOf(first), records())
+        click("dialog-close"); click("restart"); click("confirm")
+        assertFalse(preferences.getBoolean("completionRecorded", true))
+        for (index in initial.givens.indices.filter { initial.givens[it] == 0 }) {
+            click("cell-$index"); click("key-${initial.solution[index]}")
+        }
+        assertEquals(2, records().size)
+        click("dialog-close"); click("settings"); click("history")
+        node("history-record-0").assertIsDisplayed()
+        node("history-record-1").assertIsDisplayed()
+    }
+
+    @Test fun historyFiltersSortsAndScrollsToTheTwentiethRecord() {
+        scenario.close()
+        val records = (0..3).flatMap { level ->
+            (1L..25L).map { day -> Completion(level, 1700000000000L + day * 86400000L, day * 1000) }
+        }
+        preferences.edit().putString("completions", CompletionHistory.save(records)).commit()
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+        compose.waitForIdle()
+        click("settings"); click("history")
+        for (level in 0..3) {
+            node("history-level-$level").performScrollTo(); click("history-level-$level")
+            compose.onNodeWithText("用时 00:25").assertIsDisplayed()
+            node("history-record-19").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithText("用时 00:06").assertIsDisplayed()
+            node("history-record-20").assertDoesNotExist()
+        }
+    }
+
     @Test fun switchingAndClearingHighlightsFadeWithoutDarkFlashes() {
         val raw = initial.givens.indices.first { initial.givens[it] == 3 }
         fun background(): Color {

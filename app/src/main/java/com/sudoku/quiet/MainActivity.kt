@@ -16,7 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import java.util.Locale
 
-internal enum class Menu { Settings, Difficulty, NewGame, Restart, Complete }
+internal enum class Menu { Settings, Difficulty, NewGame, Restart, Complete, History }
 
 class MainActivity : ComponentActivity() {
     private val preferences by lazy { getSharedPreferences("sudoku", MODE_PRIVATE) }
@@ -26,6 +26,8 @@ class MainActivity : ComponentActivity() {
     private var light by mutableStateOf(false)
     private var showErrors by mutableStateOf(true)
     private var menu by mutableStateOf<Menu?>(null)
+    private var completions by mutableStateOf<List<Completion>>(emptyList())
+    private var completionRecorded = false
     private var nextLevel = 0
     private var resumed = false
     private var lastTick = 0L
@@ -37,13 +39,20 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val saved = preferences.getString("game", null)
-        game = saved?.let {
+        val restored = saved?.let {
             try { Game.restore(it) }
             catch (_: IllegalArgumentException) {
                 Toast.makeText(this, "存档无法读取", Toast.LENGTH_LONG).show(); null
             }
-        } ?: Game.new(0)
+        }
+        game = restored ?: Game.new(0)
         elapsed = requireNotNull(game).elapsedMs
+        completions = try { CompletionHistory.restore(preferences.getString("completions", null)) }
+        catch (_: IllegalArgumentException) {
+            Toast.makeText(this, "通关记录无法读取", Toast.LENGTH_LONG).show(); emptyList()
+        }
+        // A legacy completed save has no completion date; do not invent one on upgrade.
+        completionRecorded = restored != null && preferences.getBoolean("completionRecorded", restored.complete)
         light = preferences.getBoolean("light", false)
         showErrors = preferences.getBoolean("showErrors", true)
         paused = savedInstanceState?.getBoolean("paused") ?: false
@@ -63,6 +72,7 @@ class MainActivity : ComponentActivity() {
             )
             GameMenu(
                 menu = menu, light = light, showErrors = showErrors, time = timeText(elapsed),
+                completions = completions, level = current.level, onHistory = { open(Menu.History) },
                 onDismiss = { menu = null; lastTick = SystemClock.elapsedRealtime() },
                 onLight = {
                     light = it; preferences.edit().putBoolean("light", it).apply(); updateBars()
@@ -77,6 +87,7 @@ class MainActivity : ComponentActivity() {
                         Menu.NewGame -> startGame(nextLevel)
                         Menu.Restart -> {
                             game = current.restart(); elapsed = 0; paused = false; menu = null
+                            completionRecorded = false
                             lastTick = SystemClock.elapsedRealtime(); persist()
                         }
                         Menu.Complete -> menu = Menu.Difficulty
@@ -93,6 +104,10 @@ class MainActivity : ComponentActivity() {
         val before = requireNotNull(game)
         val next = change(before.copy(elapsedMs = elapsed))
         game = next; elapsed = next.elapsedMs
+        if (!before.complete && next.complete && !completionRecorded) {
+            completions = CompletionHistory.retain(completions + Completion(next.level, System.currentTimeMillis(), elapsed))
+            completionRecorded = true
+        }
         persist()
         if (!before.complete && next.complete) open(Menu.Complete)
     }
@@ -100,6 +115,7 @@ class MainActivity : ComponentActivity() {
     private fun open(value: Menu) { accountTime(); menu = value }
     private fun startGame(level: Int) {
         game = Game.new(level); elapsed = 0; paused = false; menu = null
+        completionRecorded = false
         lastTick = SystemClock.elapsedRealtime(); persist()
     }
     private fun togglePause() {
@@ -110,7 +126,11 @@ class MainActivity : ComponentActivity() {
         if (resumed && !paused && menu == null && game?.complete == false && lastTick != 0L) elapsed += now - lastTick
         lastTick = now
     }
-    private fun persist() { game?.let { preferences.edit().putString("game", it.copy(elapsedMs = elapsed).save()).apply() } }
+    private fun persist() { game?.let {
+        preferences.edit().putString("game", it.copy(elapsedMs = elapsed).save())
+            .putString("completions", CompletionHistory.save(completions))
+            .putBoolean("completionRecorded", completionRecorded).apply()
+    } }
     private fun updateBars() {
         val style = if (light) SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
             else SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
